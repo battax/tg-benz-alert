@@ -75,11 +75,21 @@ superiori `buildSearchPoints` interroga il centro più 8 punti su un anello a
 `radiusKm - 5`, poi si deduplica per id stazione e si riapplica la distanza
 haversine esatta (`geo.ts`) dal punto di partenza. Il filtro
 `requireTodayUpdate` è applicato **due volte**: prima su `station.insertDate`
-dalla ricerca, poi dopo l'arricchimento con `GET /registry/servicearea/:id`
-(che può correggere prezzo, nome e indirizzo) accettando l'offerta se è
-odierno il `communicatedAt` del carburante **oppure** l'`insertDate`
-dell'impianto — la data di validità del prezzo è spesso anteriore alla
-comunicazione. Solo `fuelId === 1` con `isSelf` (benzina self).
+dalla ricerca (data dell'ultima comunicazione dell'impianto, qualunque
+carburante), poi sul `communicatedAt` della sola benzina self dopo
+l'arricchimento con `GET /registry/servicearea/:id`. Le due date di norma
+coincidono, ma un gestore può aver aggiornato oggi solo il gasolio: il secondo
+filtro è quello che tiene fede alla promessa "prezzi comunicati oggi", non
+allentarlo. Solo `fuelId === 1` con `isSelf` (benzina self, verificato sui dati
+reali: `fuelId` 1 è `Benzina`, 2 `Gasolio`, e lo stesso id compare due volte
+per servito e self).
+
+Misurato in zona Piacenza: **circa un impianto su tre** ha la benzina
+aggiornata in giornata, per questo i candidati da arricchire sono
+`maxResults * 3`. Se i risultati tornassero corti, è quel moltiplicatore da
+alzare, non il filtro da allentare. `isPlausiblePrice` scarta i prezzi fuori
+dalla fascia 0,50–4,00 €/l: sono dichiarazioni errate dei gestori e
+diventerebbero "il migliore" a ogni controllo.
 
 L'API risponde **429** se riceve troppe richieste ravvicinate. Tutte le
 chiamate passano da `fetchJson`, che le distanzia (`reserveRequestSlot`,

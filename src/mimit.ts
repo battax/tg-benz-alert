@@ -14,6 +14,18 @@ const MAX_ATTEMPTS = 4;
 const RETRY_BASE_DELAY_MS = 800;
 const MAX_RETRY_DELAY_MS = 8_000;
 
+/**
+ * I prezzi li dichiarano i gestori e capitano gli errori di battitura. Un
+ * 0,019 €/l diventerebbe il migliore a ogni controllo, con alert falsi a
+ * ripetizione: fuori da questa fascia il dato non è credibile.
+ */
+const MIN_PLAUSIBLE_PRICE = 0.5;
+const MAX_PLAUSIBLE_PRICE = 4;
+
+export function isPlausiblePrice(price: number): boolean {
+  return Number.isFinite(price) && price >= MIN_PLAUSIBLE_PRICE && price <= MAX_PLAUSIBLE_PRICE;
+}
+
 interface SearchPoint {
   lat: number;
   lng: number;
@@ -245,8 +257,10 @@ function stationToOffer(
   centerLat: number,
   centerLon: number,
 ): Offer | undefined {
+  // fuelId 1 è la benzina, `isSelf` la distingue dal servito: lo stesso
+  // impianto pubblica entrambe le voci con lo stesso id.
   const fuel = station.fuels.find(
-    (item) => item.fuelId === 1 && item.isSelf && Number.isFinite(item.price),
+    (item) => item.fuelId === 1 && item.isSelf && isPlausiblePrice(item.price),
   );
   if (
     !fuel ||
@@ -286,7 +300,7 @@ async function enrichOffer(apiUrl: string, offer: Offer): Promise<Offer> {
       brand: detail.brand ?? offer.brand,
       name: detail.nomeImpianto ?? detail.name ?? offer.name,
       address: detail.address ?? offer.address,
-      price: fuel?.price ?? offer.price,
+      price: fuel && isPlausiblePrice(fuel.price) ? fuel.price : offer.price,
       communicatedAt:
         fuel?.validityDate ?? fuel?.insertDate ?? detail.insertDate ?? offer.communicatedAt,
     };
@@ -327,22 +341,22 @@ export async function fetchOffers(options: {
     .filter((offer): offer is Offer => Boolean(offer))
     .filter((offer) => offer.distanceKm <= options.radiusKm)
     .sort((a, b) => a.price - b.price || a.distanceKm - b.distanceKm)
-    // Ogni candidato costa una richiesta di dettaglio: teniamo un margine sui
-    // risultati richiesti senza allargare troppo la coda verso l'API.
-    .slice(0, Math.max(options.maxResults * 2, 10));
+    // In modalità rigorosa passa circa un candidato su tre: molti gestori
+    // comunicano ogni pochi giorni. Serve quindi un margine ampio per arrivare
+    // davvero a `maxResults` risultati, pur sapendo che ognuno costa una
+    // richiesta di dettaglio.
+    .slice(0, Math.max(options.maxResults * 3, 12));
 
   const enriched = await mapWithConcurrency(candidates, MAX_CONCURRENT_REQUESTS, (offer) =>
     enrichOffer(apiUrl, offer),
   );
   const offers = enriched
-    // La modalità rigorosa chiede che il gestore abbia comunicato oggi: la data
-    // di validità del prezzo può essere anteriore anche quando la
-    // comunicazione dell'impianto è odierna, quindi bastano l'una o l'altra.
+    // Il dettaglio porta la data della sola benzina self, che è quella che
+    // conta: un impianto può aver comunicato oggi il gasolio e avere la
+    // benzina ferma a giorni fa. Se la richiesta di dettaglio è fallita resta
+    // la data di comunicazione dell'impianto, già verificata sopra.
     .filter(
-      (offer) =>
-        !options.requireTodayUpdate ||
-        isTodayInRome(offer.communicatedAt, checkedAt) ||
-        isTodayInRome(uniqueStations.get(Number(offer.id))?.insertDate, checkedAt),
+      (offer) => !options.requireTodayUpdate || isTodayInRome(offer.communicatedAt, checkedAt),
     )
     .sort((a, b) => a.price - b.price || a.distanceKm - b.distanceKm)
     .slice(0, options.maxResults);

@@ -72,19 +72,40 @@ test("propaga l'errore quando i tentativi si esauriscono", async (context) => {
   await assert.rejects(fetchOffers(options), /API live MIMIT non disponibile \(429\)/);
 });
 
-test("tiene i prezzi validi da giorni se l'impianto ha comunicato oggi", async (context) => {
+test("scarta la benzina ferma a giorni fa anche se l'impianto ha comunicato oggi", async (context) => {
+  // Caso reale: il gestore aggiorna il gasolio e l'impianto risulta comunicato
+  // oggi, ma il prezzo della benzina self è quello della settimana scorsa.
   stubFetch(context, (url) => {
-    const vecchio = { validityDate: "2020-01-01T08:00:00.000Z" };
     if (url.includes("/search/zone")) {
-      return Response.json({ success: true, results: [station(202, 1.909, vecchio)] });
+      return Response.json({ success: true, results: [station(202, 1.909)] });
     }
-    return Response.json(station(202, 1.909, vecchio));
+    return Response.json(station(202, 1.909, { validityDate: "2020-01-01T08:00:00.000Z" }));
   });
 
   const { offers } = await fetchOffers(options);
 
-  assert.equal(offers.length, 1);
-  assert.equal(offers[0]?.id, "202");
+  assert.equal(offers.length, 0);
+  assert.equal((await fetchOffers({ ...options, requireTodayUpdate: false })).offers.length, 1);
+});
+
+test("ignora i prezzi implausibili dichiarati per errore", async (context) => {
+  stubFetch(context, (url) => {
+    if (url.includes("/search/zone")) {
+      return Response.json({
+        success: true,
+        results: [station(303, 0.019), station(304, 1.899)],
+      });
+    }
+    const id = Number(url.split("/").pop());
+    return Response.json(station(id, id === 303 ? 0.019 : 1.899));
+  });
+
+  const { offers } = await fetchOffers(options);
+
+  assert.deepEqual(
+    offers.map((offer) => offer.id),
+    ["304"],
+  );
 });
 
 test("ordina per prezzo e deduplica gli impianti trovati da più ricerche", async (context) => {
