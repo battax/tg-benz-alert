@@ -3,6 +3,7 @@ import { config, validateConfig } from "./config.js";
 import { fetchOffers } from "./mimit.js";
 import { readState, writeState } from "./state.js";
 import { sendTelegramMessage } from "./telegram.js";
+import { appendPriceSample, effectiveThreshold } from "./threshold.js";
 
 export async function runCheck(): Promise<void> {
   validateConfig();
@@ -28,11 +29,16 @@ export async function runCheck(): Promise<void> {
     return;
   }
 
-  const belowThreshold = best.price <= config.priceThreshold;
+  const threshold = effectiveThreshold({
+    mode: config.thresholdMode,
+    fixed: config.priceThreshold,
+    history: state.priceHistory,
+  });
+  const belowThreshold = best.price <= threshold.value;
   const notify = shouldNotify({
     state,
     best,
-    threshold: config.priceThreshold,
+    threshold: threshold.value,
     minDrop: config.minPriceDrop,
   });
 
@@ -45,13 +51,15 @@ export async function runCheck(): Promise<void> {
     lastRunAt: now,
     lastDatasetDate: checkedAt,
     lastWasBelow: belowThreshold,
+    priceHistory: appendPriceSample(state.priceHistory, best.price, checkedAt),
   };
 
   if (notify) {
     const text = buildMessage({
       offers: offers.slice(0, config.maxResults),
-      threshold: config.priceThreshold,
+      threshold: threshold.value,
       checkedAt,
+      ...(threshold.auto ? { autoSamples: threshold.samples } : {}),
     });
 
     if (config.dryRun) console.log(`\n--- DRY RUN ---\n${text}\n---------------`);

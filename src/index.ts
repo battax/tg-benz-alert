@@ -1,9 +1,12 @@
 import cron from "node-cron";
 import { startBotPolling } from "./bot.js";
 import { config, validateConfig } from "./config.js";
+import { reportFailure, reportSuccess } from "./health.js";
 import { runCheck } from "./job.js";
 import { runSubscriberChecks } from "./subscriber-job.js";
 import { SubscriptionStore } from "./subscriptions.js";
+
+const CHANNEL_SCOPE = "Alert canale";
 
 let channelRunning = false;
 let subscribersRunning = false;
@@ -16,8 +19,10 @@ async function guardedChannelRun(): Promise<void> {
   channelRunning = true;
   try {
     await runCheck();
+    await reportSuccess(CHANNEL_SCOPE);
   } catch (error) {
     console.error("Controllo canale fallito:", error);
+    await reportFailure(CHANNEL_SCOPE, error);
   } finally {
     channelRunning = false;
   }

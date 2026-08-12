@@ -1,9 +1,13 @@
 import { buildMessage, shouldNotify } from "./alert.js";
 import { config } from "./config.js";
+import { reportFailure, reportSuccess } from "./health.js";
 import { fetchOffers } from "./mimit.js";
 import { SubscriptionStore } from "./subscriptions.js";
 import { isUnreachableChat, sendTelegramMessage } from "./telegram.js";
+import { appendPriceSample, effectiveThreshold } from "./threshold.js";
 import type { Subscriber } from "./types.js";
+
+const USER_SCOPE = "Controllo prezzi utenti";
 
 export interface ScheduleSlot {
   date: string;
@@ -46,15 +50,25 @@ async function checkSubscriber(store: SubscriptionStore, subscriber: Subscriber)
     return;
   }
 
-  const belowThreshold = best.price <= subscriber.threshold;
+  const threshold = effectiveThreshold({
+    mode: subscriber.thresholdMode,
+    fixed: subscriber.threshold,
+    history: subscriber.priceHistory,
+  });
+  const belowThreshold = best.price <= threshold.value;
   const notify = shouldNotify({
     state: subscriber,
     best,
-    threshold: subscriber.threshold,
+    threshold: threshold.value,
     minDrop: config.minPriceDrop,
   });
 
-  const patch: Partial<Subscriber> = { lastWasBelow: belowThreshold };
+  // Lo storico si alimenta con i controlli programmati, non con quelli
+  // manuali: serve un campionamento regolare perché il percentile abbia senso.
+  const patch: Partial<Subscriber> = {
+    lastWasBelow: belowThreshold,
+    priceHistory: appendPriceSample(subscriber.priceHistory, best.price, checkedAt),
+  };
   if (notify) {
     // L'alert scatta sul migliore sotto soglia, ma elenchiamo comunque tutti i
     // distributori trovati: servono come confronto immediato.
@@ -64,8 +78,9 @@ async function checkSubscriber(store: SubscriptionStore, subscriber: Subscriber)
         chatId: subscriber.chatId,
         text: buildMessage({
           offers: offers.slice(0, config.maxResults),
-          threshold: subscriber.threshold,
+          threshold: threshold.value,
           checkedAt,
+          ...(threshold.auto ? { autoSamples: threshold.samples } : {}),
         }),
       });
     } catch (error) {
@@ -101,13 +116,22 @@ export async function runSubscriberChecks(
         subscriber.lastCheckKey !== slot.key,
     );
 
+  let succeeded = 0;
+  let lastError: unknown;
+
   for (const subscriber of subscribers) {
     try {
       await checkSubscriber(store, subscriber);
       await store.update(subscriber.chatId, { lastCheckKey: slot.key });
+      succeeded += 1;
     } catch (error) {
       // Non registriamo lo slot: lo scheduler potrà riprovare al minuto successivo.
+      lastError = error;
       console.error(`Controllo utente ${subscriber.chatId} fallito:`, error);
     }
   }
+
+  if (!subscribers.length) return;
+  if (succeeded > 0) await reportSuccess(USER_SCOPE);
+  else await reportFailure(USER_SCOPE, lastError);
 }

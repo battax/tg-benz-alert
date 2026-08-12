@@ -22,6 +22,9 @@ const telegramChatId = process.env.TELEGRAM_CHAT_ID ?? "";
 export const config = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
   telegramChatId,
+  /** Chat che riceve gli avvisi di guasto; vuota disattiva la funzione. */
+  adminChatId: process.env.ADMIN_CHAT_ID ?? "",
+  thresholdMode: process.env.THRESHOLD_MODE === "auto" ? ("auto" as const) : ("fixed" as const),
   channelAlertEnabled: booleanFromEnv("CHANNEL_ALERT_ENABLED", Boolean(telegramChatId)),
   centerLat: numberFromEnv("CENTER_LAT", 44.9969),
   centerLon: numberFromEnv("CENTER_LON", 9.66388),

@@ -7,6 +7,7 @@ const EMPTY_DATABASE: SubscriberDatabase = { subscribers: [] };
 export const SUBSCRIBER_DEFAULTS = {
   radiusKm: 10,
   threshold: 1.93,
+  thresholdMode: "fixed",
   hours: [7, 22],
   enabled: true,
   requireTodayUpdate: true,
@@ -41,9 +42,18 @@ export function normalizeSubscriber(raw: unknown): Subscriber | undefined {
       typeof candidate.threshold === "number" && candidate.threshold > 0
         ? candidate.threshold
         : SUBSCRIBER_DEFAULTS.threshold,
+    thresholdMode: candidate.thresholdMode === "auto" ? "auto" : SUBSCRIBER_DEFAULTS.thresholdMode,
     hours: hours.length ? [...new Set(hours)].sort((a, b) => a - b) : [...SUBSCRIBER_DEFAULTS.hours],
     enabled: candidate.enabled ?? SUBSCRIBER_DEFAULTS.enabled,
     requireTodayUpdate: candidate.requireTodayUpdate ?? SUBSCRIBER_DEFAULTS.requireTodayUpdate,
+    priceHistory: Array.isArray(candidate.priceHistory)
+      ? candidate.priceHistory.filter(
+          (sample) =>
+            typeof sample?.at === "string" &&
+            typeof sample.price === "number" &&
+            Number.isFinite(sample.price),
+        )
+      : [],
     createdAt: candidate.createdAt ?? now,
     updatedAt: candidate.updatedAt ?? now,
   };

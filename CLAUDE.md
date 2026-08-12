@@ -89,12 +89,37 @@ rispettando `Retry-After`; ricerche e arricchimenti girano con
 tutta la lista. Un controllo completo impiega quindi qualche secondo:
 è voluto.
 
+### Soglia
+
+`threshold.ts` è l'unica autorità sul valore da confrontare con il prezzo:
+`effectiveThreshold` restituisce la soglia fissa oppure, in modalità `auto` e
+con almeno `MIN_SAMPLES_FOR_AUTO` rilevazioni, il trentesimo percentile dei
+prezzi migliori degli ultimi `HISTORY_DAYS` giorni. Chiamarla ovunque serva
+confrontare o mostrare una soglia (`subscriber-job`, `job`, `bot`): non usare
+`subscriber.threshold` / `config.priceThreshold` grezzi, sono solo il valore
+di riserva.
+
+Lo storico si alimenta **solo dai controlli programmati** (`appendPriceSample`
+in `subscriber-job.ts` e `job.ts`), mai da `/controlla`: un campionamento
+irregolare falserebbe il percentile.
+
 ### Messaggio di alert
 
 `shouldNotify` decide sul **migliore** sotto soglia, ma `buildMessage` elenca
 tutti i `MAX_RESULTS` distributori trovati, marcando con `✅`/`🔸` quelli sotto
 e sopra soglia. Non filtrare per soglia prima di passare le offerte, altrimenti
-l'alert si riduce a una riga sola.
+l'alert si riduce a una riga sola. Il consiglio finale (`buildAdvice`) è
+espresso in distanza dalla soglia, non in prezzi assoluti: resta valido a
+qualsiasi livello di mercato e non contiene riferimenti a un'auto specifica —
+il bot è multiutente.
+
+### Avvisi di guasto
+
+`health.ts` conta i fallimenti consecutivi per ambito e avvisa `ADMIN_CHAT_ID`
+dopo due, con cooldown di 30 minuti e messaggio di rientro. Senza questo un
+guasto del MIMIT si manifesta solo come silenzio, indistinguibile da "nessun
+prezzo sotto soglia". Chiamare `reportSuccess` anche sui percorsi felici,
+altrimenti il rientro non viene mai segnalato.
 
 ### Persistenza
 

@@ -14,6 +14,7 @@ import {
   type TelegramMessage,
   type TelegramUpdate,
 } from "./telegram.js";
+import { effectiveThreshold, MIN_SAMPLES_FOR_AUTO } from "./threshold.js";
 import type { PendingAction, Subscriber } from "./types.js";
 
 const mainKeyboard: ReplyMarkup = {
@@ -97,8 +98,13 @@ async function askPosition(chatId: number): Promise<void> {
 async function askThreshold(chatId: number): Promise<void> {
   await send(
     chatId,
-    "Scegli il prezzo massimo che consideri conveniente:",
+    [
+      "Scegli il prezzo massimo che consideri conveniente.",
+      "",
+      "Con la <b>soglia automatica</b> non devi aggiornarla a mano: ti avviso quando il prezzo è tra i più bassi delle ultime due settimane, che il mercato salga o scenda.",
+    ].join("\n"),
     inlineKeyboard([
+      [{ text: "🤖 Automatica (consigliata)", callback_data: "threshold:auto" }],
       [
         { text: "1,850 €", callback_data: "threshold:1.85" },
         { text: "1,900 €", callback_data: "threshold:1.90" },
@@ -142,6 +148,21 @@ async function askHours(chatId: number): Promise<void> {
   );
 }
 
+function describeThreshold(subscriber: Subscriber): string {
+  const threshold = effectiveThreshold({
+    mode: subscriber.thresholdMode,
+    fixed: subscriber.threshold,
+    history: subscriber.priceHistory,
+  });
+  if (threshold.auto) {
+    return `<b>automatica: ${formatPrice(threshold.value)} €/l</b> (su ${threshold.samples} rilevazioni)`;
+  }
+  if (subscriber.thresholdMode === "auto") {
+    return `<b>automatica</b>, in raccolta dati (${threshold.samples} di ${MIN_SAMPLES_FOR_AUTO} rilevazioni): intanto uso <b>${formatPrice(subscriber.threshold)} €/l</b>`;
+  }
+  return `<b>${formatPrice(subscriber.threshold)} €/l</b>`;
+}
+
 async function sendStatus(subscriber: Subscriber): Promise<void> {
   const position =
     subscriber.latitude === undefined || subscriber.longitude === undefined
@@ -155,7 +176,7 @@ async function sendStatus(subscriber: Subscriber): Promise<void> {
       `Stato: <b>${subscriber.enabled ? "attivo ✅" : "in pausa ⏸"}</b>`,
       `Posizione: <code>${position}</code>`,
       `Raggio: <b>${subscriber.radiusKm} km</b>`,
-      `Soglia: <b>${formatPrice(subscriber.threshold)} €/l</b>`,
+      `Soglia: ${describeThreshold(subscriber)}`,
       `Orari: <b>${subscriber.hours.map((hour) => `${String(hour).padStart(2, "0")}:00`).join(", ")}</b>`,
       `Dati: <b>${subscriber.requireTodayUpdate ? "solo prezzi comunicati oggi" : "ultimi prezzi ufficiali"}</b>`,
     ].join("\n"),
@@ -200,9 +221,20 @@ async function checkNow(subscriber: Subscriber): Promise<void> {
     return;
   }
 
+  const threshold = effectiveThreshold({
+    mode: subscriber.thresholdMode,
+    fixed: subscriber.threshold,
+    history: subscriber.priceHistory,
+  });
   await send(
     subscriber.chatId,
-    buildMessage({ offers, threshold: subscriber.threshold, checkedAt, mode: "check" }),
+    buildMessage({
+      offers,
+      threshold: threshold.value,
+      checkedAt,
+      mode: "check",
+      ...(threshold.auto ? { autoSamples: threshold.samples } : {}),
+    }),
     mainKeyboard,
   );
 }
@@ -219,7 +251,7 @@ async function handlePendingText(
   if (subscriber.pendingAction === "threshold") {
     const threshold = parseThreshold(text);
     if (threshold !== undefined) {
-      patch = { threshold, pendingAction: undefined };
+      patch = { threshold, thresholdMode: "fixed", pendingAction: undefined };
       confirmation = `Soglia aggiornata a <b>${formatPrice(threshold)} €/l</b>.`;
     }
   } else if (subscriber.pendingAction === "radius") {
@@ -336,6 +368,13 @@ async function handleCallback(
   });
   const [type, value] = callback.data.split(":");
 
+  if (type === "threshold" && value === "auto") {
+    await store.update(chatId, { thresholdMode: "auto", pendingAction: undefined });
+    await answerCallbackQuery(config.telegramBotToken, callback.id, "Soglia automatica attiva");
+    await sendStatus(store.get(chatId) ?? subscriber);
+    return;
+  }
+
   if (value === "custom") {
     const pendingAction = type as PendingAction;
     await store.update(chatId, { pendingAction });
@@ -353,7 +392,9 @@ async function handleCallback(
 
   if (type === "threshold") {
     const threshold = parseThreshold(value ?? "");
-    if (threshold !== undefined) await store.update(chatId, { threshold, pendingAction: undefined });
+    if (threshold !== undefined) {
+      await store.update(chatId, { threshold, thresholdMode: "fixed", pendingAction: undefined });
+    }
   } else if (type === "radius") {
     const radiusKm = parseRadius(value ?? "");
     if (radiusKm !== undefined) await store.update(chatId, { radiusKm, pendingAction: undefined });

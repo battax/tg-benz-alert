@@ -1,6 +1,6 @@
 import type { AlertState, Offer } from "./types.js";
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
@@ -49,23 +49,28 @@ export function shouldNotify(options: {
   return best.id !== state.lastAlertStationId && best.price <= state.lastAlertPrice;
 }
 
+/**
+ * Il consiglio è relativo alla soglia dell'utente, non a prezzi assoluti
+ * scritti nel codice: resta valido anche quando il mercato si sposta.
+ */
+export function buildAdvice(price: number, threshold: number): string {
+  const gap = threshold - price;
+  if (gap >= 0.04) return "occasione ottima, conviene fare il pieno";
+  if (gap >= 0.015) return "buon prezzo, conviene un rifornimento abbondante";
+  if (gap >= 0) return "prezzo in linea con la tua soglia, metti quanto ti serve";
+  return "sopra la tua soglia, meglio solo il necessario";
+}
+
 export function buildMessage(options: {
   offers: Offer[];
   threshold: number;
   checkedAt?: string;
   mode?: "alert" | "check";
+  /** Rilevazioni usate per la soglia automatica; assente se soglia fissa. */
+  autoSamples?: number;
 }): string {
   const best = options.offers[0];
   if (!best) throw new Error("Nessuna offerta da mostrare");
-
-  const recommendedAmount =
-    best.price <= 1.93
-      ? "conviene fare il pieno"
-      : best.price <= 1.96
-        ? "conviene mettere 40 €"
-        : best.price <= 2
-          ? "conviene mettere 25–30 €"
-          : "conviene mettere solo il necessario";
   const lines = options.offers.map((offer, index) => {
     const label = escapeHtml(offer.name || offer.brand || "Distributore");
     const address = escapeHtml([offer.address, offer.city].filter(Boolean).join(", "));
@@ -83,8 +88,10 @@ export function buildMessage(options: {
     "",
     ...lines,
     "",
-    `🚗 Per la tua Fabia: <b>${recommendedAmount}</b>.`,
-    `🎯 Soglia impostata: ${formatPrice(options.threshold)} €/l (✅ sotto soglia, 🔸 sopra)`,
+    `🚗 <b>${buildAdvice(best.price, options.threshold)}</b>.`,
+    options.autoSamples === undefined
+      ? `🎯 Soglia impostata: ${formatPrice(options.threshold)} €/l (✅ sotto soglia, 🔸 sopra)`
+      : `🎯 Soglia automatica: ${formatPrice(options.threshold)} €/l, dai prezzi migliori delle ultime due settimane (${options.autoSamples} rilevazioni)`,
     options.checkedAt
       ? `🟢 Verifica live MIMIT: ${escapeHtml(shortUpdatedAt(options.checkedAt))}`
       : "🟢 Fonte: Osservaprezzi MIMIT live",

@@ -25,6 +25,15 @@ export interface Offer extends Station {
   distanceKm: number;
 }
 
+/** Prezzo migliore rilevato in un controllo programmato. */
+export interface PriceSample {
+  at: string;
+  price: number;
+}
+
+/** `fixed`: soglia scelta dall'utente. `auto`: ricavata dallo storico. */
+export type ThresholdMode = "fixed" | "auto";
+
 export interface AlertState {
   lastRunAt?: string;
   lastDatasetDate?: string;
@@ -32,6 +41,7 @@ export interface AlertState {
   lastAlertPrice?: number;
   lastAlertStationId?: string;
   lastAlertAt?: string;
+  priceHistory?: PriceSample[];
 }
 
 export type PendingAction = "threshold" | "radius" | "hours" | undefined;
@@ -45,6 +55,7 @@ export interface Subscriber {
   longitude?: number;
   radiusKm: number;
   threshold: number;
+  thresholdMode: ThresholdMode;
   hours: number[];
   enabled: boolean;
   requireTodayUpdate: boolean;
@@ -53,6 +64,7 @@ export interface Subscriber {
   lastWasBelow?: boolean;
   lastAlertPrice?: number;
   lastAlertStationId?: string;
+  priceHistory?: PriceSample[];
   createdAt: string;
   updatedAt: string;
 }

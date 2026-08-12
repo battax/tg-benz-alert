@@ -23,6 +23,16 @@ comandi o i pulsanti equivalenti:
 Le impostazioni iniziali sono: soglia `1,930 €/l`, raggio `10 km`, orari
 `07:00` e `22:00`, solo prezzi comunicati nella giornata corrente.
 
+### Soglia automatica
+
+Una soglia fissa invecchia: se il mercato sale sopra il valore scelto gli
+alert spariscono, se scende arrivano tutti i giorni. Da `/soglia` si può
+scegliere **🤖 Automatica**: il bot registra il prezzo migliore a ogni
+controllo programmato e avvisa quando il prezzo di oggi è tra i più bassi
+delle ultime due settimane (trentesimo percentile). Servono almeno sei
+rilevazioni: fino ad allora resta valida la soglia scelta a mano, e `/stato`
+mostra a che punto è la raccolta.
+
 ## Dati e privacy
 
 Il bot salva in `data/subscribers.json` l'ID Telegram, l'eventuale username,
@@ -131,6 +141,8 @@ Non creare né committare un `.env` con il token reale sul PC.
 
 | Variabile | Default | Significato |
 |---|---:|---|
+| `ADMIN_CHAT_ID` | vuoto | Chat avvisata quando i controlli falliscono di fila |
+| `THRESHOLD_MODE` | `fixed` | `auto` usa lo storico anche per il canale |
 | `CHANNEL_ALERT_ENABLED` | automatico | Attiva il canale se esiste `TELEGRAM_CHAT_ID` |
 | `CRON_SCHEDULE` | `0 7,22 * * *` | Orari dell'eventuale canale |
 | `USER_SCHEDULER_CRON` | `* * * * *` | Motore che individua gli utenti da controllare |
