@@ -48,11 +48,8 @@ export async function runCheck(): Promise<void> {
   };
 
   if (notify) {
-    const interesting = offers
-      .filter((offer) => offer.price <= config.priceThreshold)
-      .slice(0, config.maxResults);
     const text = buildMessage({
-      offers: interesting,
+      offers: offers.slice(0, config.maxResults),
       threshold: config.priceThreshold,
       checkedAt,
     });

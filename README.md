@@ -134,7 +134,7 @@ Non creare né committare un `.env` con il token reale sul PC.
 | `CHANNEL_ALERT_ENABLED` | automatico | Attiva il canale se esiste `TELEGRAM_CHAT_ID` |
 | `CRON_SCHEDULE` | `0 7,22 * * *` | Orari dell'eventuale canale |
 | `USER_SCHEDULER_CRON` | `* * * * *` | Motore che individua gli utenti da controllare |
-| `MAX_RESULTS` | `3` | Distributori mostrati |
+| `MAX_RESULTS` | `5` | Distributori mostrati |
 | `MIN_PRICE_DROP` | `0.005` | Ribasso richiesto per ripetere un alert |
 | `REQUIRE_TODAY_UPDATE` | `true` | Solo prezzi comunicati oggi per il canale |
 | `TIMEZONE` | `Europe/Rome` | Fuso orario degli alert |

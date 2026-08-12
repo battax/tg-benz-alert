@@ -49,3 +49,16 @@ test("il messaggio include prezzo, distanza e consiglio", () => {
   assert.match(message, /fare il pieno/);
   assert.match(message, /Verifica live MIMIT/);
 });
+
+test("elenca anche i distributori sopra soglia, marcandoli", () => {
+  const offers: Offer[] = [
+    best,
+    { ...best, id: "102", name: "Secondo", price: 1.949 },
+    { ...best, id: "103", name: "Terzo", price: 1.999 },
+  ];
+  const message = buildMessage({ offers, threshold: 1.93 });
+
+  assert.match(message, /^🥇 <b>1,929 €\/l<\/b> ✅ — <b>Quarto Fuel<\/b>$/m);
+  assert.match(message, /^🥈 <b>1,949 €\/l<\/b> 🔸 — <b>Secondo<\/b>$/m);
+  assert.match(message, /^🥉 <b>1,999 €\/l<\/b> 🔸 — <b>Terzo<\/b>$/m);
+});

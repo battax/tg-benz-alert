@@ -56,14 +56,13 @@ async function checkSubscriber(store: SubscriptionStore, subscriber: Subscriber)
 
   const patch: Partial<Subscriber> = { lastWasBelow: belowThreshold };
   if (notify) {
-    const interesting = offers
-      .filter((offer) => offer.price <= subscriber.threshold)
-      .slice(0, config.maxResults);
+    // L'alert scatta sul migliore sotto soglia, ma elenchiamo comunque tutti i
+    // distributori trovati: servono come confronto immediato.
     await sendTelegramMessage({
       botToken: config.telegramBotToken,
       chatId: subscriber.chatId,
       text: buildMessage({
-        offers: interesting,
+        offers: offers.slice(0, config.maxResults),
         threshold: subscriber.threshold,
         checkedAt,
       }),

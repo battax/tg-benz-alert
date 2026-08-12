@@ -3,6 +3,17 @@ import type { Offer } from "./types.js";
 
 const LIVE_SEARCH_RADIUS_KM = 10;
 
+/**
+ * L'API MIMIT risponde 429 se riceve troppe richieste ravvicinate. Teniamo
+ * poche richieste in volo, distanziate tra loro, e ritentiamo con attesa
+ * crescente: meglio un controllo di qualche secondo che una lista dimezzata.
+ */
+const MAX_CONCURRENT_REQUESTS = 3;
+const MIN_REQUEST_GAP_MS = 250;
+const MAX_ATTEMPTS = 4;
+const RETRY_BASE_DELAY_MS = 800;
+const MAX_RETRY_DELAY_MS = 8_000;
+
 interface SearchPoint {
   lat: number;
   lng: number;
@@ -113,7 +124,67 @@ function asLiveSearchResponse(value: unknown): LiveSearchResponse {
   return value as LiveSearchResponse;
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/**
+ * Distanzia l'inizio di ogni richiesta: le chiamate restano concorrenti, ma
+ * non partono tutte nello stesso istante.
+ */
+let requestGate: Promise<void> = Promise.resolve();
+let lastRequestAt = 0;
+
+function reserveRequestSlot(): Promise<void> {
+  requestGate = requestGate.then(async () => {
+    const pause = MIN_REQUEST_GAP_MS - (Date.now() - lastRequestAt);
+    if (pause > 0) await wait(pause);
+    lastRequestAt = Date.now();
+  });
+  return requestGate;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index]!);
+    }
+  });
+
+  await Promise.all(runners);
+  return results;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 408 || status >= 500;
+}
+
+function backoffMs(attempt: number): number {
+  return Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS);
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const header = response.headers.get("retry-after");
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
+}
+
+type Attempt<T> =
+  | { ok: true; data: T }
+  | { ok: false; status: number; retryAfter?: number };
+
+async function attemptFetch<T>(url: string, init?: RequestInit): Promise<Attempt<T>> {
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -124,8 +195,35 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     signal: AbortSignal.timeout(30_000),
   });
 
-  if (!response.ok) throw new Error(`API live MIMIT non disponibile (${response.status})`);
-  return (await response.json()) as T;
+  if (!response.ok) {
+    const retryAfter = retryAfterMs(response);
+    return retryAfter === undefined
+      ? { ok: false, status: response.status }
+      : { ok: false, status: response.status, retryAfter };
+  }
+  return { ok: true, data: (await response.json()) as T };
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    const lastAttempt = attempt >= MAX_ATTEMPTS;
+    await reserveRequestSlot();
+
+    let outcome: Attempt<T>;
+    try {
+      outcome = await attemptFetch<T>(url, init);
+    } catch (error) {
+      if (lastAttempt) throw error;
+      await wait(backoffMs(attempt));
+      continue;
+    }
+
+    if (outcome.ok) return outcome.data;
+    if (lastAttempt || !isRetryableStatus(outcome.status)) {
+      throw new Error(`API live MIMIT non disponibile (${outcome.status})`);
+    }
+    await wait(outcome.retryAfter ?? backoffMs(attempt));
+  }
 }
 
 async function searchAround(apiUrl: string, point: SearchPoint): Promise<LiveStation[]> {
@@ -213,7 +311,9 @@ export async function fetchOffers(options: {
     options.centerLon,
     options.radiusKm,
   );
-  const searches = await Promise.all(points.map((point) => searchAround(apiUrl, point)));
+  const searches = await mapWithConcurrency(points, MAX_CONCURRENT_REQUESTS, (point) =>
+    searchAround(apiUrl, point),
+  );
 
   const uniqueStations = new Map<number, LiveStation>();
   for (const station of searches.flat()) uniqueStations.set(station.id, station);
@@ -227,15 +327,22 @@ export async function fetchOffers(options: {
     .filter((offer): offer is Offer => Boolean(offer))
     .filter((offer) => offer.distanceKm <= options.radiusKm)
     .sort((a, b) => a.price - b.price || a.distanceKm - b.distanceKm)
-    .slice(0, Math.max(options.maxResults * 4, 12));
+    // Ogni candidato costa una richiesta di dettaglio: teniamo un margine sui
+    // risultati richiesti senza allargare troppo la coda verso l'API.
+    .slice(0, Math.max(options.maxResults * 2, 10));
 
-  const enriched = await Promise.all(
-    candidates.map((offer) => enrichOffer(apiUrl, offer)),
+  const enriched = await mapWithConcurrency(candidates, MAX_CONCURRENT_REQUESTS, (offer) =>
+    enrichOffer(apiUrl, offer),
   );
   const offers = enriched
+    // La modalità rigorosa chiede che il gestore abbia comunicato oggi: la data
+    // di validità del prezzo può essere anteriore anche quando la
+    // comunicazione dell'impianto è odierna, quindi bastano l'una o l'altra.
     .filter(
       (offer) =>
-        !options.requireTodayUpdate || isTodayInRome(offer.communicatedAt, checkedAt),
+        !options.requireTodayUpdate ||
+        isTodayInRome(offer.communicatedAt, checkedAt) ||
+        isTodayInRome(uniqueStations.get(Number(offer.id))?.insertDate, checkedAt),
     )
     .sort((a, b) => a.price - b.price || a.distanceKm - b.distanceKm)
     .slice(0, options.maxResults);

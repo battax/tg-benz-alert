@@ -8,6 +8,12 @@ function formatPrice(price: number): string {
   return price.toFixed(3).replace(".", ",");
 }
 
+const RANK_EMOJI = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+
+function rankLabel(index: number): string {
+  return RANK_EMOJI[index] ?? `${index + 1}.`;
+}
+
 function mapsUrl(offer: Offer): string {
   const query = `${offer.latitude},${offer.longitude}`;
   return `https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(query)}`;
@@ -65,7 +71,9 @@ export function buildMessage(options: {
     const address = escapeHtml([offer.address, offer.city].filter(Boolean).join(", "));
     const updated = offer.communicatedAt ? ` · agg. ${escapeHtml(shortUpdatedAt(offer.communicatedAt))}` : "";
     const location = address ? `${address} · ` : "";
-    return `${index + 1}. <b>${formatPrice(offer.price)} €/l</b> — ${label}\n   ${location}${offer.distanceKm.toFixed(1).replace(".", ",")} km${updated} · <a href="${mapsUrl(offer)}">mappa</a>`;
+    // I distributori oltre soglia restano in lista come confronto, marcati.
+    const marker = offer.price <= options.threshold ? "✅" : "🔸";
+    return `${rankLabel(index)} <b>${formatPrice(offer.price)} €/l</b> ${marker} — <b>${label}</b>\n   ${location}${offer.distanceKm.toFixed(1).replace(".", ",")} km${updated} · <a href="${mapsUrl(offer)}">mappa</a>`;
   });
 
   return [
@@ -76,7 +84,7 @@ export function buildMessage(options: {
     ...lines,
     "",
     `🚗 Per la tua Fabia: <b>${recommendedAmount}</b>.`,
-    `🎯 Soglia impostata: ${formatPrice(options.threshold)} €/l`,
+    `🎯 Soglia impostata: ${formatPrice(options.threshold)} €/l (✅ sotto soglia, 🔸 sopra)`,
     options.checkedAt
       ? `🟢 Verifica live MIMIT: ${escapeHtml(shortUpdatedAt(options.checkedAt))}`
       : "🟢 Fonte: Osservaprezzi MIMIT live",
