@@ -1,0 +1,27 @@
+{
+  "name": "telegram-benzina-alert",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Bot Telegram multiutente con alert personalizzati sui prezzi live della benzina, basati sull'Osservaprezzi MIMIT.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "once": "tsx src/once.ts",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/*.test.js",
+    "check": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  }
+}
