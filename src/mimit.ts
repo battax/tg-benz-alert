@@ -176,7 +176,7 @@ function retryAfterMs(response: Response): number | undefined {
   const header = response.headers.get("retry-after");
   if (!header) return undefined;
   const seconds = Number(header);
-  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
   return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
 }
 

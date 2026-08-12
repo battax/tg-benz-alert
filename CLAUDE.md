@@ -29,7 +29,9 @@ npx tsc -p tsconfig.test.json && node --test .test-dist/mimit.test.js
 ```
 
 Non esiste un linter: `tsc --strict` (con `noUncheckedIndexedAccess`) è
-l'unico controllo statico. Deploy in produzione via
+l'unico controllo statico. `mimit-fetch.test.ts` sostituisce `globalThis.fetch`
+per coprire retry, 429 e filtri senza toccare la rete: è il modo previsto per
+testare le chiamate HTTP. Deploy in produzione via
 `docker compose up -d --build` con `./data` montato su `/app/data`.
 
 ## Architettura
@@ -100,8 +102,13 @@ Nessun database: tre file JSON in `data/`, tutti scritti con `write` su `.tmp`
 + `rename` atomico. `SubscriptionStore` serializza le scritture su una
 `persistQueue` e restituisce sempre `structuredClone`: **mutare l'oggetto
 `Subscriber` ricevuto non salva nulla**, serve `store.update(chatId, patch)`.
-`BOT_STATE_FILE` conserva l'offset di `getUpdates`, riscritto dopo ogni update
-elaborato per non riprocessare messaggi dopo un riavvio.
+`BOT_STATE_FILE` conserva l'offset di `getUpdates`.
+
+Il file degli iscritti è stato scritto da versioni precedenti: `init()` passa
+ogni riga da `normalizeSubscriber`, che applica `SUBSCRIBER_DEFAULTS` ai campi
+mancanti e scarta le righe senza `chatId`/`userId`. Aggiungendo una preferenza
+al `Subscriber`, darle un default lì, altrimenti gli iscritti esistenti la
+avranno `undefined` a dispetto dei tipi.
 
 ### Telegram
 
@@ -113,6 +120,18 @@ da comando slash, da pulsante della reply keyboard (mappato a comando in
 `tipo:valore`, con `valore = "custom"` che imposta `pendingAction` e attende
 il messaggio di testo successivo). Aggiungendo un comando, aggiornare anche
 `preparePollingBot` (`setMyCommands`), `mainKeyboard` e `buttonCommands`.
+
+`telegramRequest` ritenta su 429 (rispettando `parameters.retry_after`) e su
+5xx, e fallisce con `TelegramApiError`. `isUnreachableChat` riconosce chi ha
+bloccato il bot: `subscriber-job.ts` lo mette in pausa (`enabled: false`)
+invece di rifare una ricerca MIMIT completa ogni minuto per un invio destinato
+a fallire; l'utente riparte con **▶️ Attiva**.
+
+`startBotPolling` non elabora gli update in sequenza — un `/controlla` dura
+qualche secondo e bloccherebbe tutti gli altri. Ogni chat ha la sua coda
+(`enqueueChatWork`), le chat diverse procedono in parallelo. L'offset avanza
+alla presa in carico, non a lavoro finito: un crash a metà elaborazione perde
+quell'update invece di riproporlo.
 
 ## Note
 

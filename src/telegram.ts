@@ -35,9 +35,40 @@ interface TelegramResponse<T> {
   ok: boolean;
   result?: T;
   description?: string;
+  parameters?: { retry_after?: number };
 }
 
 export type ReplyMarkup = Record<string, unknown>;
+
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 15_000;
+
+export class TelegramApiError extends Error {
+  constructor(
+    readonly method: string,
+    readonly status: number,
+    readonly description: string,
+    readonly retryAfterSeconds?: number,
+  ) {
+    super(`Telegram ${method}: ${description}`);
+    this.name = "TelegramApiError";
+  }
+}
+
+/**
+ * Chat non più raggiungibile: l'utente ha bloccato il bot, ha cancellato
+ * l'account o la chat non esiste più. Ritentare non ha senso.
+ */
+export function isUnreachableChat(error: unknown): boolean {
+  if (!(error instanceof TelegramApiError)) return false;
+  if (error.status === 403) return true;
+  return error.status === 400 && /chat not found|chat_id is empty/i.test(error.description);
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 export async function telegramRequest<T>(options: {
   botToken: string;
@@ -45,23 +76,45 @@ export async function telegramRequest<T>(options: {
   payload?: Record<string, unknown>;
   timeoutMs?: number;
 }): Promise<T> {
-  const response = await fetch(
-    `https://api.telegram.org/bot${options.botToken}/${options.method}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(options.payload ?? {}),
-      signal: AbortSignal.timeout(options.timeoutMs ?? 35_000),
-    },
-  );
+  for (let attempt = 1; ; attempt += 1) {
+    const lastAttempt = attempt >= MAX_ATTEMPTS;
+    let error: TelegramApiError;
 
-  const result = (await response.json()) as TelegramResponse<T>;
-  if (!response.ok || !result.ok) {
-    throw new Error(
-      `Telegram ${options.method}: ${result.description ?? `errore HTTP ${response.status}`}`,
-    );
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${options.botToken}/${options.method}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(options.payload ?? {}),
+          signal: AbortSignal.timeout(options.timeoutMs ?? 35_000),
+        },
+      );
+
+      const result = (await response.json()) as TelegramResponse<T>;
+      if (response.ok && result.ok) return result.result as T;
+
+      error = new TelegramApiError(
+        options.method,
+        response.status,
+        result.description ?? `errore HTTP ${response.status}`,
+        result.parameters?.retry_after,
+      );
+    } catch (networkError) {
+      if (lastAttempt) throw networkError;
+      await wait(Math.min(RETRY_BASE_DELAY_MS * attempt, MAX_RETRY_DELAY_MS));
+      continue;
+    }
+
+    const retryable = error.status === 429 || error.status >= 500;
+    if (lastAttempt || !retryable) throw error;
+
+    // Telegram indica da sé quanti secondi attendere quando limita il bot.
+    const delay = error.retryAfterSeconds
+      ? error.retryAfterSeconds * 1000
+      : RETRY_BASE_DELAY_MS * attempt;
+    await wait(Math.min(delay, MAX_RETRY_DELAY_MS));
   }
-  return result.result as T;
 }
 
 export async function sendTelegramMessage(options: {

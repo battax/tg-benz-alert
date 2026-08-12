@@ -4,6 +4,51 @@ import type { Subscriber, SubscriberDatabase } from "./types.js";
 
 const EMPTY_DATABASE: SubscriberDatabase = { subscribers: [] };
 
+export const SUBSCRIBER_DEFAULTS = {
+  radiusKm: 10,
+  threshold: 1.93,
+  hours: [7, 22],
+  enabled: true,
+  requireTodayUpdate: true,
+} as const;
+
+/**
+ * Il file su disco è stato scritto da versioni precedenti del bot: un campo
+ * aggiunto oggi arriverebbe `undefined` per chi è già iscritto, pur essendo
+ * obbligatorio nei tipi. Qui riportiamo ogni riga alla forma corrente.
+ */
+export function normalizeSubscriber(raw: unknown): Subscriber | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const candidate = raw as Partial<Subscriber>;
+  if (typeof candidate.chatId !== "number" || typeof candidate.userId !== "number") {
+    return undefined;
+  }
+
+  const now = new Date().toISOString();
+  const hours = Array.isArray(candidate.hours)
+    ? candidate.hours.filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+    : [];
+
+  return {
+    ...candidate,
+    chatId: candidate.chatId,
+    userId: candidate.userId,
+    radiusKm:
+      typeof candidate.radiusKm === "number" && candidate.radiusKm > 0
+        ? candidate.radiusKm
+        : SUBSCRIBER_DEFAULTS.radiusKm,
+    threshold:
+      typeof candidate.threshold === "number" && candidate.threshold > 0
+        ? candidate.threshold
+        : SUBSCRIBER_DEFAULTS.threshold,
+    hours: hours.length ? [...new Set(hours)].sort((a, b) => a - b) : [...SUBSCRIBER_DEFAULTS.hours],
+    enabled: candidate.enabled ?? SUBSCRIBER_DEFAULTS.enabled,
+    requireTodayUpdate: candidate.requireTodayUpdate ?? SUBSCRIBER_DEFAULTS.requireTodayUpdate,
+    createdAt: candidate.createdAt ?? now,
+    updatedAt: candidate.updatedAt ?? now,
+  };
+}
+
 export class SubscriptionStore {
   private database: SubscriberDatabase = structuredClone(EMPTY_DATABASE);
   private persistQueue: Promise<void> = Promise.resolve();
@@ -13,9 +58,14 @@ export class SubscriptionStore {
   async init(): Promise<void> {
     try {
       const parsed = JSON.parse(await readFile(this.path, "utf8")) as SubscriberDatabase;
-      this.database = {
-        subscribers: Array.isArray(parsed.subscribers) ? parsed.subscribers : [],
-      };
+      const rows: unknown[] = Array.isArray(parsed.subscribers) ? parsed.subscribers : [];
+      const subscribers = rows
+        .map((row) => normalizeSubscriber(row))
+        .filter((row): row is Subscriber => row !== undefined);
+
+      const discarded = rows.length - subscribers.length;
+      if (discarded > 0) console.warn(`${discarded} iscritti non validi ignorati in ${this.path}.`);
+      this.database = { subscribers };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await this.persist();
@@ -48,11 +98,8 @@ export class SubscriptionStore {
 
     const subscriber: Subscriber = {
       ...identity,
-      radiusKm: 10,
-      threshold: 1.93,
-      hours: [7, 22],
-      enabled: true,
-      requireTodayUpdate: true,
+      ...SUBSCRIBER_DEFAULTS,
+      hours: [...SUBSCRIBER_DEFAULTS.hours],
       createdAt: now,
       updatedAt: now,
     };

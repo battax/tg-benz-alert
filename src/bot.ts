@@ -69,7 +69,9 @@ async function sendWelcome(subscriber: Subscriber): Promise<void> {
   const positionText =
     subscriber.latitude === undefined
       ? "Per iniziare, premi <b>📍 Condividi posizione</b>."
-      : "La tua configurazione è già attiva: puoi modificarla dai pulsanti qui sotto.";
+      : subscriber.enabled
+        ? "La tua configurazione è già attiva: puoi modificarla dai pulsanti qui sotto."
+        : "I tuoi alert sono in pausa: premi <b>▶️ Attiva</b> per riprenderli.";
   await send(
     subscriber.chatId,
     [
@@ -386,6 +388,29 @@ async function handleUpdate(store: SubscriptionStore, update: TelegramUpdate): P
   else if (update.callback_query) await handleCallback(store, update.callback_query);
 }
 
+function updateChatId(update: TelegramUpdate): number | undefined {
+  return update.message?.chat.id ?? update.callback_query?.message?.chat.id;
+}
+
+/**
+ * Un `/controlla` interroga il MIMIT per qualche secondo: elaborare gli update
+ * in sequenza bloccherebbe tutti gli altri utenti. Ogni chat ha quindi la sua
+ * coda, così le sue richieste restano ordinate mentre le chat diverse
+ * procedono in parallelo.
+ */
+const chatQueues = new Map<number, Promise<void>>();
+
+function enqueueChatWork(chatId: number, work: () => Promise<void>): void {
+  const previous = chatQueues.get(chatId) ?? Promise.resolve();
+  const current = previous.then(work).catch((error) => {
+    console.error(`Errore nella chat ${chatId}:`, error);
+  });
+  chatQueues.set(chatId, current);
+  void current.then(() => {
+    if (chatQueues.get(chatId) === current) chatQueues.delete(chatId);
+  });
+}
+
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -399,12 +424,17 @@ export async function startBotPolling(store: SubscriptionStore): Promise<never> 
     try {
       const updates = await getTelegramUpdates({ botToken: config.telegramBotToken, offset });
       for (const update of updates) {
-        try {
-          await handleUpdate(store, update);
-        } catch (error) {
-          console.error(`Errore update Telegram ${update.update_id}:`, error);
+        const chatId = updateChatId(update);
+        if (chatId === undefined) {
+          console.warn(`Update Telegram ${update.update_id} senza chat: ignorato.`);
+        } else {
+          enqueueChatWork(chatId, () => handleUpdate(store, update));
         }
         offset = update.update_id + 1;
+      }
+      // L'offset avanza appena l'update è stato preso in carico: Telegram non
+      // ce lo ripropone e il polling resta libero di ricevere gli altri.
+      if (updates.length > 0 && offset !== undefined) {
         await writeOffset(config.botStateFile, offset);
       }
     } catch (error) {

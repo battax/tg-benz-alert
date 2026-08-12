@@ -2,7 +2,7 @@ import { buildMessage, shouldNotify } from "./alert.js";
 import { config } from "./config.js";
 import { fetchOffers } from "./mimit.js";
 import { SubscriptionStore } from "./subscriptions.js";
-import { sendTelegramMessage } from "./telegram.js";
+import { isUnreachableChat, sendTelegramMessage } from "./telegram.js";
 import type { Subscriber } from "./types.js";
 
 export interface ScheduleSlot {
@@ -58,15 +58,25 @@ async function checkSubscriber(store: SubscriptionStore, subscriber: Subscriber)
   if (notify) {
     // L'alert scatta sul migliore sotto soglia, ma elenchiamo comunque tutti i
     // distributori trovati: servono come confronto immediato.
-    await sendTelegramMessage({
-      botToken: config.telegramBotToken,
-      chatId: subscriber.chatId,
-      text: buildMessage({
-        offers: offers.slice(0, config.maxResults),
-        threshold: subscriber.threshold,
-        checkedAt,
-      }),
-    });
+    try {
+      await sendTelegramMessage({
+        botToken: config.telegramBotToken,
+        chatId: subscriber.chatId,
+        text: buildMessage({
+          offers: offers.slice(0, config.maxResults),
+          threshold: subscriber.threshold,
+          checkedAt,
+        }),
+      });
+    } catch (error) {
+      // Chi ha bloccato il bot va sospeso: senza questo, ogni minuto della
+      // sua fascia oraria rifaremmo una ricerca completa per un invio certo
+      // di fallire. Riparte da solo appena riscrive al bot.
+      if (!isUnreachableChat(error)) throw error;
+      await store.update(subscriber.chatId, { enabled: false });
+      console.warn(`Utente ${subscriber.chatId} irraggiungibile: alert sospesi.`);
+      return;
+    }
     patch.lastAlertPrice = best.price;
     patch.lastAlertStationId = best.id;
     console.log(`Alert privato inviato all'utente ${subscriber.chatId}.`);
