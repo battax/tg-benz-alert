@@ -21,7 +21,11 @@ comandi o i pulsanti equivalenti:
 | `/attiva` | Riattiva gli alert |
 
 Le impostazioni iniziali sono: soglia `1,930 €/l`, raggio `10 km`, orari
-`07:00` e `22:00`, solo prezzi comunicati nella giornata corrente.
+`09:00` e `22:00`, solo prezzi comunicati nella giornata corrente.
+
+Gli orari non sono casuali: il grosso dei gestori comunica il prezzo del
+giorno fra le 07:00 e le 08:00. Un controllo alle 07:00, con il filtro sulla
+giornata corrente attivo, troverebbe solo una manciata di impianti su decine.
 
 ### Soglia automatica
 
@@ -144,7 +148,7 @@ Non creare né committare un `.env` con il token reale sul PC.
 | `ADMIN_CHAT_ID` | vuoto | Chat avvisata quando i controlli falliscono di fila |
 | `THRESHOLD_MODE` | `fixed` | `auto` usa lo storico anche per il canale |
 | `CHANNEL_ALERT_ENABLED` | automatico | Attiva il canale se esiste `TELEGRAM_CHAT_ID` |
-| `CRON_SCHEDULE` | `0 7,22 * * *` | Orari dell'eventuale canale |
+| `CRON_SCHEDULE` | `0 9,22 * * *` | Orari dell'eventuale canale |
 | `USER_SCHEDULER_CRON` | `* * * * *` | Motore che individua gli utenti da controllare |
 | `MAX_RESULTS` | `5` | Distributori mostrati |
 | `MIN_PRICE_DROP` | `0.005` | Ribasso richiesto per ripetere un alert |

@@ -81,7 +81,7 @@ async function sendWelcome(subscriber: Subscriber): Promise<void> {
       "Ti avviso quando trovo benzina self conveniente vicino alla posizione che scegli.",
       positionText,
       "",
-      "Impostazioni iniziali: soglia <b>1,930 €/l</b>, raggio <b>10 km</b>, orari <b>07:00 e 22:00</b>.",
+      "Impostazioni iniziali: soglia <b>1,930 €/l</b>, raggio <b>10 km</b>, orari <b>09:00 e 22:00</b>.",
     ].join("\n"),
     mainKeyboard,
   );
@@ -136,12 +136,16 @@ async function askRadius(chatId: number): Promise<void> {
 async function askHours(chatId: number): Promise<void> {
   await send(
     chatId,
-    "Scegli quando controllare i prezzi (ora italiana):",
+    [
+      "Scegli quando controllare i prezzi (ora italiana).",
+      "",
+      "Prima delle 08:00 quasi nessun distributore ha ancora comunicato il prezzo del giorno: meglio dalle 09:00 in poi.",
+    ].join("\n"),
     inlineKeyboard([
       [
-        { text: "07 e 22", callback_data: "hours:7,22" },
-        { text: "08 e 20", callback_data: "hours:8,20" },
-        { text: "Solo 07", callback_data: "hours:7" },
+        { text: "09 e 22", callback_data: "hours:9,22" },
+        { text: "10 e 20", callback_data: "hours:10,20" },
+        { text: "Solo 09", callback_data: "hours:9" },
       ],
       [{ text: "✍️ Personalizzati", callback_data: "hours:custom" }],
     ]),
@@ -275,7 +279,7 @@ async function handlePendingText(
         ? "Valore non valido. Scrivi un prezzo tra 1,000 e 3,000, per esempio <code>1,925</code>."
         : subscriber.pendingAction === "radius"
           ? "Valore non valido. Scrivi un raggio tra 1 e 20 km."
-          : "Formato non valido. Scrivi le ore separate da virgola, per esempio <code>7,22</code>.",
+          : "Formato non valido. Scrivi le ore separate da virgola, per esempio <code>9,22</code>.",
     );
     return true;
   }
@@ -385,7 +389,7 @@ async function handleCallback(
         ? "Scrivi la soglia desiderata, per esempio <code>1,925</code>."
         : type === "radius"
           ? "Scrivi il raggio desiderato da 1 a 20 km."
-          : "Scrivi le ore separate da virgola, per esempio <code>7,13,22</code>.",
+          : "Scrivi le ore separate da virgola, per esempio <code>9,13,22</code>.",
     );
     return;
   }

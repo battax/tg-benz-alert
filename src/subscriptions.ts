@@ -8,7 +8,10 @@ export const SUBSCRIBER_DEFAULTS = {
   radiusKm: 10,
   threshold: 1.93,
   thresholdMode: "fixed",
-  hours: [7, 22],
+  // Alle 07:00 quasi nessun gestore ha comunicato i prezzi di giornata: il
+  // grosso delle comunicazioni arriva fra le 07:00 e le 08:00, quindi con la
+  // modalità rigorosa un controllo alle 07:00 vedrebbe pochi impianti.
+  hours: [9, 22],
   enabled: true,
   requireTodayUpdate: true,
 } as const;

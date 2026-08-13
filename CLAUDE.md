@@ -59,6 +59,11 @@ rompono tutti e due.
 
 ### Slot orari degli utenti
 
+Gli orari di default (`9` e `22`, come `CRON_SCHEDULE`) sono scelti sui dati:
+il grosso dei gestori comunica il prezzo del giorno **fra le 07:00 e le
+08:00**, quindi un controllo alle 07:00 in modalità rigorosa vedrebbe pochi
+impianti su decine. Non riportarli alle 07:00.
+
 `USER_SCHEDULER_CRON` gira ogni minuto ma non interroga il MIMIT ogni minuto.
 `getRomeScheduleSlot` produce una chiave `YYYY-MM-DD-HH` in ora italiana;
 vengono controllati solo gli utenti attivi, con posizione, la cui ora è nella

@@ -18,7 +18,7 @@ test("crea e conserva la configurazione di un utente", async (context) => {
     firstName: "Giuseppe",
   });
   assert.equal(subscriber.threshold, 1.93);
-  assert.deepEqual(subscriber.hours, [7, 22]);
+  assert.deepEqual(subscriber.hours, [9, 22]);
 
   await store.update(123, { latitude: 45.05, longitude: 9.69, radiusKm: 15 });
   const reloaded = new SubscriptionStore(path);
@@ -50,14 +50,15 @@ test("completa gli iscritti salvati da versioni precedenti", async (context) => 
   const restored = store.get(1);
   assert.equal(restored?.radiusKm, 10);
   assert.equal(restored?.threshold, 1.93);
-  assert.deepEqual(restored?.hours, [7, 22]);
+  assert.deepEqual(restored?.hours, [9, 22]);
   assert.equal(restored?.enabled, true);
-  assert.deepEqual(store.get(2)?.hours, [7, 22]);
+  assert.deepEqual(store.get(2)?.hours, [9, 22]);
   assert.equal(store.get(2)?.threshold, 1.93);
   assert.equal(store.list().length, 2, "la riga senza chatId viene scartata");
 });
 
 test("normalizza ore duplicate e fuori intervallo", () => {
+  // Ore scelte dall'utente: si ripuliscono, non si sostituiscono coi default.
   const subscriber = normalizeSubscriber({ chatId: 9, userId: 9, hours: [22, 7, 7, 30] });
   assert.deepEqual(subscriber?.hours, [7, 22]);
 });

@@ -33,7 +33,7 @@ export const config = {
   minPriceDrop: numberFromEnv("MIN_PRICE_DROP", 0.005),
   maxResults: Math.max(1, Math.round(numberFromEnv("MAX_RESULTS", 5))),
   requireTodayUpdate: booleanFromEnv("REQUIRE_TODAY_UPDATE", true),
-  cronSchedule: process.env.CRON_SCHEDULE ?? "0 7,22 * * *",
+  cronSchedule: process.env.CRON_SCHEDULE ?? "0 9,22 * * *",
   userSchedulerCron: process.env.USER_SCHEDULER_CRON ?? "* * * * *",
   timezone: process.env.TIMEZONE ?? "Europe/Rome",
   runOnStart: booleanFromEnv("RUN_ON_START", false),
